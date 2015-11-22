@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace MultiIndexDictionary
 {
-    public class MultiIndexDictionary<TKey, TValue> : IDictionary<TKey, TValue>
+    public class MultiIndexDictionary<TKey, TValue> : IMultiIndexDictionary<TKey, TValue>
     {
         /// <summary>
         /// Represents a dictionary index.
@@ -17,7 +17,6 @@ namespace MultiIndexDictionary
             /// The index name.
             /// </summary>
             public string Name { get; private set; }
-            //public Dictionary<string, List<TValue>> Data { get; private set; }
             /// <summary>
             /// A factory that returns a string index key provided with a <typeparamref name="{TValue}"/>.
             /// </summary>
@@ -25,8 +24,16 @@ namespace MultiIndexDictionary
 
             public Index(string name, Func<TValue, string> keyFactory)
             {
+                if (String.IsNullOrWhiteSpace(name))
+                {
+                    throw new ArgumentNullException("name");
+                }
+                if (keyFactory == null)
+                {
+                    throw new ArgumentNullException("keyFactory");
+                }
+
                 Name = name;
-                //Data = new Dictionary<string, List<TValue>>();
                 KeyFactory = keyFactory;
             }
         }
@@ -42,13 +49,31 @@ namespace MultiIndexDictionary
         private readonly Dictionary<string, Index> _indices;
 
         public int Count { get { return _data.Count; } }
+        public int IndexCount { get { return _indices.Count; } }
         public bool IsReadOnly { get { return false; } }
         public ICollection<TKey> Keys { get { return _data.Keys; } }
         public ICollection<TValue> Values { get { return _data.Values; } }
+
         public TValue this[TKey key]
         {
             get { return _data[key]; }
             set { Add(key, value); }
+        }
+
+        public IDictionary<TKey, TValue> this[string indexName, string indexKey]
+        {
+            get
+            {
+                Index index;
+                if (_indices.TryGetValue(indexName, out index))
+                {
+                    return index[indexKey];
+                }
+                else
+                {
+                    throw new KeyNotFoundException("Index doesn't exist.");
+                }
+            }
         }
 
         public MultiIndexDictionary()
@@ -142,6 +167,109 @@ namespace MultiIndexDictionary
         public bool TryGetValue(TKey key, out TValue value)
         {
             return _data.TryGetValue(key, out value);
+        }
+
+        public void AddIndex(string indexName, Func<TValue, string> indexKeyFactory)
+        {
+            if (_indices.ContainsKey(indexName))
+            {
+                throw new ArgumentException("An index with this name already exists.", indexName);
+            }
+
+            var index = new Index(indexName, indexKeyFactory);
+            // Building the index with existing values.
+            foreach (KeyValuePair<TKey, TValue> kvp in _data)
+            {
+                string indexKey = index.KeyFactory(kvp.Value);
+                Dictionary<TKey, TValue> indexData;
+                if (!index.TryGetValue(indexKey, out indexData))
+                {
+                    indexData = new Dictionary<TKey, TValue>();
+                    index.Add(indexKey, indexData);
+                }
+                indexData.Add(kvp.Key, kvp.Value);
+            }
+            _indices.Add(index.Name, index);
+        }
+
+        public bool RemoveIndex(string indexName)
+        {
+            return _indices.Remove(indexName);
+        }
+
+        public bool ContainsIndex(string indexName)
+        {
+            return _indices.ContainsKey(indexName);
+        }
+
+        public bool ContainsIndexKey(string indexName, string indexKey)
+        {
+            Index index;
+            if (_indices.TryGetValue(indexName, out index))
+            {
+                return index.ContainsKey(indexKey);
+            }
+            else
+            {
+                throw new KeyNotFoundException("Index doesn't exist.");
+            }
+        }
+
+        public ICollection<string> GetIndexKeys(string indexName)
+        {
+            Index index;
+            if (_indices.TryGetValue(indexName, out index))
+            {
+                return index.Keys;
+            }
+            else
+            {
+                throw new KeyNotFoundException("Index doesn't exist.");
+            }
+        }
+
+        public ICollection<IDictionary<TKey, TValue>> GetIndexValues(string indexName)
+        {
+            Index index;
+            if (_indices.TryGetValue(indexName, out index))
+            {
+                return new List<IDictionary<TKey, TValue>>(index.Values);
+            }
+            else
+            {
+                throw new KeyNotFoundException("Index doesn't exist.");
+            }
+        }
+
+        public bool TryGetIndexValues(string indexName, out ICollection<IDictionary<TKey, TValue>> values)
+        {
+            Index index;
+            if (_indices.TryGetValue(indexName, out index))
+            {
+                values = new List<IDictionary<TKey, TValue>>(index.Values);
+                return true;
+            }
+            else
+            {
+                values = null;
+                return false;
+            }
+        }
+
+        public bool TryGetIndexValues(string indexName, string indexKey, out IDictionary<TKey, TValue> values)
+        {
+            Index index;
+            Dictionary<TKey, TValue> outValues;
+            if (_indices.TryGetValue(indexName, out index) && index.TryGetValue(indexKey, out outValues))
+            {
+                values = outValues;
+                return true;
+            }
+            else
+            {
+                values = null;
+                return false;
+            }
         }
     }
 }
